@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="500" viewBox="0 0 980 500" font-family="'Segoe UI', -apple-system, Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#5c5c5c"/>
+    </marker>
+    <style>
+      .stage { fill:#ffffff; stroke:#c8c6c4; stroke-width:1.2; rx:8; }
+      .stageCore { fill:#0078d4; stroke:#0078d4; stroke-width:1.2; rx:8; }
+      .title { font-size:13px; font-weight:600; fill:#201f1e; }
+      .titleW { font-size:13px; font-weight:600; fill:#ffffff; }
+      .sub { font-size:10.5px; fill:#605e5c; }
+      .subW { font-size:10.5px; fill:#c7e0f4; }
+      .chip { fill:#eff6fc; stroke:#0078d4; stroke-width:1.1; rx:8; }
+      .chipT { font-size:11.5px; font-weight:600; fill:#0b5394; }
+      .chipS { font-size:9.5px; fill:#3f5066; }
+      .flow { stroke:#5c5c5c; stroke-width:1.4; fill:none; }
+      .dist { stroke:#0078d4; stroke-width:1.2; fill:none; }
+      .h1 { font-size:18px; font-weight:700; fill:#201f1e; }
+      .cap { font-size:11px; fill:#605e5c; }
+      .tag { fill:#dff3e4; stroke:#107c10; stroke-width:1; rx:6; }
+      .tagT { font-size:10px; font-weight:600; fill:#0e630e; }
+    </style>
+  </defs>
+
+  <rect width="980" height="500" fill="#faf9f8"/>
+
+  <text x="30" y="40" class="h1">trellis-forge &#8212; how a photo becomes a 3D asset</text>
+
+  <!-- Pipeline stages -->
+  <rect x="30"  y="120" width="150" height="70" class="stage"/>
+  <rect x="222" y="120" width="150" height="70" class="stage"/>
+  <rect x="414" y="120" width="150" height="70" class="stageCore"/>
+  <rect x="606" y="120" width="150" height="70" class="stage"/>
+  <rect x="798" y="120" width="150" height="70" class="stage"/>
+
+  <text x="105" y="150" text-anchor="middle" class="title">Photos in</text>
+  <text x="105" y="168" text-anchor="middle" class="sub">.jpg .png .webp</text>
+
+  <text x="297" y="150" text-anchor="middle" class="title">Preprocess</text>
+  <text x="297" y="168" text-anchor="middle" class="sub">rembg &#183; resize</text>
+
+  <text x="489" y="150" text-anchor="middle" class="titleW">Backend</text>
+  <text x="489" y="168" text-anchor="middle" class="subW">auto-select</text>
+
+  <text x="681" y="150" text-anchor="middle" class="title">Export + QC</text>
+  <text x="681" y="168" text-anchor="middle" class="sub">GLB &#183; OBJ &#183; STL</text>
+
+  <text x="873" y="150" text-anchor="middle" class="title">Assets out</text>
+  <text x="873" y="168" text-anchor="middle" class="sub">mesh + manifest.json</text>
+
+  <!-- Stage arrows -->
+  <line x1="180" y1="155" x2="218" y2="155" class="flow" marker-end="url(#arrow)"/>
+  <line x1="372" y1="155" x2="410" y2="155" class="flow" marker-end="url(#arrow)"/>
+  <line x1="564" y1="155" x2="602" y2="155" class="flow" marker-end="url(#arrow)"/>
+  <line x1="756" y1="155" x2="794" y2="155" class="flow" marker-end="url(#arrow)"/>
+
+  <!-- Distribution from Backend down to the four backends -->
+  <line x1="489" y1="190" x2="489" y2="240" class="dist"/>
+  <line x1="150" y1="240" x2="828" y2="240" class="dist"/>
+  <line x1="150" y1="240" x2="150" y2="270" class="dist" marker-end="url(#arrow)"/>
+  <line x1="376" y1="240" x2="376" y2="270" class="dist" marker-end="url(#arrow)"/>
+  <line x1="602" y1="240" x2="602" y2="270" class="dist" marker-end="url(#arrow)"/>
+  <line x1="828" y1="240" x2="828" y2="270" class="dist" marker-end="url(#arrow)"/>
+
+  <!-- Backend chips -->
+  <rect x="52"  y="272" width="196" height="58" class="chip"/>
+  <rect x="278" y="272" width="196" height="58" class="chip"/>
+  <rect x="504" y="272" width="196" height="58" class="chip"/>
+  <rect x="730" y="272" width="196" height="58" class="chip"/>
+
+  <text x="150" y="296" text-anchor="middle" class="chipT">official-cuda</text>
+  <text x="150" y="313" text-anchor="middle" class="chipS">Linux &#183; NVIDIA &#8805;24 GB &#183; fastest</text>
+
+  <text x="376" y="296" text-anchor="middle" class="chipT">official-mps</text>
+  <text x="376" y="313" text-anchor="middle" class="chipS">Apple Silicon &#183; ~20&#8211;30 min/asset</text>
+
+  <text x="602" y="296" text-anchor="middle" class="chipT">mlx</text>
+  <text x="602" y="313" text-anchor="middle" class="chipS">Apple Silicon &#183; local HTTP API</text>
+
+  <text x="828" y="296" text-anchor="middle" class="chipT">hf-space</text>
+  <text x="828" y="313" text-anchor="middle" class="chipS">any machine &#183; hosted demo</text>
+
+  <!-- Low-memory callout -->
+  <rect x="52" y="380" width="874" height="66" class="tag"/>
+  <text x="72" y="406" class="tagT">On a 16 GB Mac</text>
+  <text x="72" y="426" class="cap">reliable today: <tspan font-weight="600">hf-space</tspan> (any resolution) or <tspan font-weight="600">mlx / official-mps</tspan> at <tspan font-weight="600">--resolution 512</tspan>. 1024&#179; and above are best-effort until quantized MLX weights ship.</text>
+</svg>
