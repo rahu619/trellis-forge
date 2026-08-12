@@ -108,13 +108,31 @@ class MlxBackend(Backend):
         except Exception:  # noqa: BLE001 — unreachable server is a valid state
             return None
 
+    def _quant_marker(self) -> Path | None:
+        repo = self._repo()
+        if repo is None or not repo.is_dir():
+            return None
+        # Lazy on purpose: trellis_forge.quant depends on this module for the
+        # env-var contract, so importing it at module level would be a cycle.
+        from ..quant.markers import DEFAULT_WEIGHTS_REL, QUANT_MARKER, WEIGHTS_ENV
+
+        env = os.environ.get(WEIGHTS_ENV)
+        weights_dir = Path(env) if env else repo / DEFAULT_WEIGHTS_REL
+        marker = weights_dir / QUANT_MARKER
+        return marker if marker.is_file() else None
+
     def is_available(self) -> tuple[bool, str]:
         url = self._url()
         health = self._health()
         if health is not None:
             if not health.get("weights_loaded", False):
                 return False, f"server at {url} is up but its weights are not loaded"
-            return True, f"connected to API server at {url}"
+            precision = ""
+            if health.get("quantized") is True:
+                precision = ", quantized weights"
+            elif health.get("quantized") is False:
+                precision = ", full precision"
+            return True, f"connected to API server at {url}{precision}"
 
         repo = self._repo()
         if repo is None:
@@ -129,9 +147,12 @@ class MlxBackend(Backend):
                 f"{repo} has no api_server.py — `git pull` your clone; the HTTP "
                 "API is required"
             )
+        quant_note = ""
+        if self._quant_marker() is not None:
+            quant_note = "; 4-bit weights present (serving hook: docs/mlx-quantization.md)"
         return False, (
             f"repo ready at {repo}; start the server with "
-            f"`cd {repo} && python api_server.py`, then re-run"
+            f"`cd {repo} && python api_server.py`, then re-run{quant_note}"
         )
 
     def generate(

@@ -31,11 +31,12 @@ Tests never run real inference engines — they use `FakeBackend`
 
 ```
 src/trellis_forge/
-├── cli.py        typer app: generate / backends / version
+├── cli.py        typer app: generate / backends / quantize-mlx / version
 ├── config.py     GenerationParams (frozen dataclass) + validation
 ├── pipeline.py   collect_images → run_batch (per-image loop, resume, isolation)
 ├── preprocess.py load / downscale / optional rembg
 ├── backends/     Backend ABC; official.py (cuda & mps), mlx.py, hf_space.py
+├── quant/        quantization library: markers.py + mlx_weights.py (4-bit for ≤16 GB Macs)
 ├── export.py     GLB primary; OBJ/STL geometry-only convenience exports
 ├── qc.py         trimesh watertight / face-count / bounds report
 ├── manifest.py   sha256-keyed provenance ledger + resume

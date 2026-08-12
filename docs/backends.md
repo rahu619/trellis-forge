@@ -31,10 +31,12 @@
   responds to `/health` with `weights_loaded: true`.
 - Resolution maps to the port's `pipeline_type`: 512→`512`, 1024→`1024_cascade`,
   1536→`1536_cascade`. `--decimate` maps to `decimation_target`.
-- 16 GB Macs: port docs validate only 128 GB; use `--resolution 512` and treat
-  success as best-effort. Quantized weights (4-bit via `mlx.utils.quantize`) are
-  the planned fix and don't exist yet — contributing them is the project's
-  headline roadmap item.
+- 16 GB Macs: port docs validate only 128 GB; with fp weights,
+  `--resolution 512` and best-effort is the honest setting. `trellis-forge
+  quantize-mlx` produces 4-bit weights (~15 GB → ~4 GB) plus a
+  `quantized.json` marker that the status probes pick up; once the port's
+  serving hook lands, 1024³ should fit. Mechanics and validation plan:
+  [mlx-quantization.md](mlx-quantization.md).
 
 ## hf-space
 

@@ -32,6 +32,7 @@ that adds the things a research repo never will:
 | **Reproducibility** | A base seed is combined with each image's hash, so a rerun is deterministic. |
 | **Provenance** | `manifest.json` records source-image hash, backend, seed, resolution, timings, and a geometry QC report. Interrupted batches resume where they stopped. |
 | **Portability** | CUDA, Apple Silicon (MPS or MLX), or a hosted demo — selected by a flag or auto-detected. |
+| **16 GB Macs** | `trellis-forge quantize-mlx` quantizes the MLX port's weights to 4-bit (~15 GB → ~4 GB), so TRELLIS.2 fits laptops with 16 GB of unified memory. |
 
 It is deliberately *not* an interactive authoring tool.
 
@@ -154,11 +155,12 @@ Both are young, and both are honest about it.
    `127.0.0.1:8000`.)
 
 > [!IMPORTANT]
-> **On a 16 GB unified-memory Mac** (e.g. an M3 MacBook), local generation is
-> best-effort. Expect **512³ only**, close heavy apps during a run, and treat
-> `hf-space` as the reliable zero-GPU answer. The MLX port is validated on
-> 128 GB and no quantized Mac weights exist yet — shipping 4-bit MLX weights is
-> the top roadmap item, and it's what will make 16 GB comfortable.
+> **On a 16 GB unified-memory Mac** (e.g. an M3 MacBook), full-precision local
+> generation is best-effort: expect **512³ only**, and treat `hf-space` as the
+> reliable zero-GPU answer. The fix is quantization — `trellis-forge
+> quantize-mlx` converts the MLX port's weights to 4-bit (~15 GB → ~4 GB);
+> once the port's serving hook lands, 1024³ should fit. Full story and
+> validation status: [docs/mlx-quantization.md](docs/mlx-quantization.md).
 
 ### hf-space — works on any machine
 
@@ -234,7 +236,8 @@ photos of people, patients, or copyrighted work you don't hold.
 ## Roadmap
 
 - [ ] Verify + complete the MLX adapter against `trellis2-mlx`'s API on a real Mac
-- [ ] 4-bit quantized MLX weights for 16 GB Macs (the "safe on a laptop" milestone)
+- [ ] 16 GB Mac milestone: quantization tooling shipped (`trellis-forge quantize-mlx`);
+      upstream serving hook + real-Mac quality validation remain
 - [ ] Preview renders (turntable/contact sheet) per asset
 - [ ] Watch upstream MPS support (PR #167) and drop the patch requirement when merged
 
