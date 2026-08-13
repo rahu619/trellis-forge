@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from . import __version__
+
+SCHEMA = 2
 
 
 class Manifest:
@@ -12,13 +14,15 @@ class Manifest:
 
     Keyed by source-image sha256 so re-running a batch skips what already
     succeeded, and every shipped asset can be traced to the exact input,
-    backend, seed and resolution that produced it.
+    backend, seed and resolution that produced it. Output paths are stored
+    relative to the manifest so the whole asset tree stays portable.
     """
 
     def __init__(self, path: Path) -> None:
         self.path = path
         self.data: dict = {
             "tool": "trellis-forge",
+            "schema": SCHEMA,
             "version": __version__,
             "created": _now(),
             "entries": {},
@@ -29,11 +33,13 @@ class Manifest:
         manifest = cls(path)
         if path.exists():
             try:
-                manifest.data = json.loads(path.read_text())
-                manifest.data.setdefault("entries", {})
+                data = json.loads(path.read_text())
+                data.setdefault("entries", {})
+                manifest.data = data
             except (json.JSONDecodeError, OSError):
                 # Corrupt manifest: keep generating, start a fresh ledger.
                 manifest.data["entries"] = {}
+        manifest.data["schema"] = SCHEMA
         return manifest
 
     def has(self, source_hash: str) -> bool:
@@ -49,4 +55,4 @@ class Manifest:
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")

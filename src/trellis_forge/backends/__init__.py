@@ -2,21 +2,15 @@ from __future__ import annotations
 
 from .base import Backend, BackendResult, ForgeError
 from .hf_space import HfSpaceBackend
-from .mlx import MlxBackend
 from .official import OfficialBackend
 
-# Preference order for --backend auto: real GPU first, Mac port second,
-# MPS third (slow), hosted demo last.
-AUTO_PRIORITY = ("official-cuda", "mlx", "official-mps", "hf-space")
+# Preference order for --backend auto: real GPU first, hosted demo as the
+# works-everywhere fallback.
+AUTO_PRIORITY = ("official-cuda", "hf-space")
 
 
 def all_backends() -> dict[str, Backend]:
-    backends = [
-        OfficialBackend("cuda"),
-        MlxBackend(),
-        OfficialBackend("mps"),
-        HfSpaceBackend(),
-    ]
+    backends = [OfficialBackend(), HfSpaceBackend()]
     return {b.name: b for b in backends}
 
 
@@ -47,7 +41,6 @@ __all__ = [
     "BackendResult",
     "ForgeError",
     "HfSpaceBackend",
-    "MlxBackend",
     "OfficialBackend",
     "all_backends",
     "resolve_backend",

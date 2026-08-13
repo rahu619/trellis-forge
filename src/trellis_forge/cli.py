@@ -5,29 +5,31 @@ from pathlib import Path
 import typer
 from rich.console import Console
 from rich.markup import escape
+from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    TimeElapsedColumn,
+)
 from rich.table import Table
 
-from . import __version__, sysinfo
+from . import __version__
 from .backends import all_backends, resolve_backend
 from .backends.base import ForgeError
 from .config import VALID_FORMATS, VALID_RESOLUTIONS, GenerationParams
 from .pipeline import collect_images, run_batch
-from .quant import (
-    discover_components,
-    find_quant_marker,
-    human_bytes,
-    quantize_weights,
-    resolve_repo,
-    resolve_weights_dir,
-)
 
 app = typer.Typer(
     name="trellis-forge",
-    help="One-stop TRELLIS.2 image-to-3D: folders of images in, GLB/OBJ/STL assets out.",
+    help="Batch image-to-3D with TRELLIS.2: folders of images in, GLB/OBJ/STL assets out.",
     no_args_is_help=True,
     add_completion=False,
 )
 console = Console()
+
+_OUTCOME_STYLE = {"generated": "green", "skipped": "dim", "failed": "red"}
 
 
 def _fail(message: str) -> typer.Exit:
@@ -35,13 +37,31 @@ def _fail(message: str) -> typer.Exit:
     return typer.Exit(code=2)
 
 
+def _print_version(value: bool) -> None:
+    if value:
+        console.print(__version__)
+        raise typer.Exit()
+
+
+@app.callback()
+def main(
+    version: bool = typer.Option(
+        False,
+        "--version",
+        "-V",
+        help="Show the version and exit.",
+        callback=_print_version,
+        is_eager=True,
+    ),
+) -> None:
+    """trellis-forge — batch image-to-3D with TRELLIS.2."""
+
+
 @app.command()
 def generate(
     paths: list[Path] = typer.Argument(..., exists=True, help="Image files or folders of images."),
     out: Path = typer.Option(..., "--out", "-o", help="Output directory for assets + manifest."),
-    backend: str = typer.Option(
-        "auto", help="auto | official-cuda | mlx | official-mps | hf-space"
-    ),
+    backend: str = typer.Option("auto", help="auto | official-cuda | hf-space"),
     resolution: int = typer.Option(1024, help=f"Voxel resolution: {VALID_RESOLUTIONS}."),
     seed: int = typer.Option(42, help="Base seed; combined per image for reproducibility."),
     fmt: list[str] = typer.Option(
@@ -71,14 +91,41 @@ def generate(
     images = collect_images(paths, recursive)
     if not images:
         raise _fail("no .jpg/.jpeg/.png/.webp images found in the given paths")
+    total = len(images) if limit is None else min(limit, len(images))
 
     console.print(
-        f"[bold]trellis-forge[/bold] v{__version__} — {len(images)} image(s), "
+        f"[bold]trellis-forge[/bold] v{__version__} — {total} image(s), "
         f"backend [cyan]{engine.name}[/cyan], {resolution}^3, formats {', '.join(fmt)}"
     )
-    summary = run_batch(
-        images, out, engine, params, remove_background=rembg, force=force, limit=limit
-    )
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        MofNCompleteColumn(),
+        TimeElapsedColumn(),
+        console=console,
+    ) as progress:
+        task = progress.add_task(engine.name, total=total)
+
+        def on_image(image_path: Path, outcome: str, detail: str) -> None:
+            style = _OUTCOME_STYLE[outcome]
+            progress.update(
+                task,
+                advance=1,
+                description=f"[{style}]{outcome}[/] {escape(image_path.name)}",
+            )
+
+        summary = run_batch(
+            images,
+            out,
+            engine,
+            params,
+            remove_background=rembg,
+            force=force,
+            limit=limit,
+            on_image=on_image,
+        )
 
     console.print(
         f"[green]{summary.generated} generated[/green], "
@@ -95,23 +142,6 @@ def generate(
 @app.command()
 def backends() -> None:
     """Show which TRELLIS.2 backends are usable on this machine."""
-    console.print(f"[dim]machine:[/dim] {escape(sysinfo.machine_summary())}")
-    if sysinfo.is_apple_silicon() and sysinfo.is_low_memory():
-        marker = find_quant_marker()
-        if marker:
-            count = len(marker.get("components") or {})
-            console.print(
-                f"[dim]tip:[/dim] 4-bit quantized weights detected ({count} component(s)). "
-                "Once the port's serving hook lands (docs/mlx-quantization.md), "
-                "1024^3 should fit this box."
-            )
-        else:
-            console.print(
-                "[dim]tip:[/dim] on a low-memory Mac the reliable paths are "
-                "[cyan]hf-space[/cyan] (any size) or [cyan]mlx[/cyan]/"
-                "[cyan]official-mps[/cyan] at [cyan]--resolution 512[/cyan]; 1024^3+ is "
-                "best-effort. [cyan]trellis-forge quantize-mlx[/cyan] builds 4-bit weights."
-            )
     table = Table(title=f"trellis-forge v{__version__} — backends")
     table.add_column("backend", style="cyan")
     table.add_column("status")
@@ -119,76 +149,10 @@ def backends() -> None:
     for name, engine in all_backends().items():
         ok, reason = engine.is_available()
         status = "[green]available[/green]" if ok else "[red]unavailable[/red]"
-        # escape(): reasons contain literals like "trellis-forge[hf]" that
-        # rich would otherwise parse as markup tags.
+        # escape(): reasons can contain literals like "trellis-forge[rembg]"
+        # that rich would otherwise parse as markup tags.
         table.add_row(name, status, escape(f"{engine.description} — {reason}"))
     console.print(table)
-
-
-@app.command("quantize-mlx")
-def quantize_mlx(
-    repo: Path | None = typer.Option(
-        None, "--repo", help="trellis2-mlx checkout (default: $TRELLIS2_MLX_REPO)."
-    ),
-    weights: Path | None = typer.Option(
-        None,
-        "--weights",
-        help="Weights dir with pipeline.json (default: $TRELLIS2_WEIGHTS or "
-        "<repo>/weights/TRELLIS.2-4B).",
-    ),
-    bits: int = typer.Option(4, help="Quantization bit width (4 recommended)."),
-    group_size: int = typer.Option(64, help="Quantization group size."),
-    force: bool = typer.Option(
-        False, "--force", help="Re-quantize components that already have q4 weights."
-    ),
-) -> None:
-    """Quantize trellis2-mlx weights to 4-bit so TRELLIS.2 fits a 16 GB Mac."""
-    try:
-        resolved_repo = resolve_repo(repo)
-        weights_dir = resolve_weights_dir(resolved_repo, weights)
-        components, undiscovered = discover_components(weights_dir)
-    except ForgeError as exc:
-        raise _fail(str(exc)) from exc
-    if not components:
-        raise _fail(f"no local checkpoint pairs found under {weights_dir / 'ckpts'}")
-
-    console.print(
-        f"[bold]quantize-mlx[/bold] — {len(components)} component(s) in {weights_dir}, "
-        f"{bits}-bit, group size {group_size}"
-    )
-    try:
-        summary = quantize_weights(
-            resolved_repo,
-            weights_dir,
-            components,
-            bits=bits,
-            group_size=group_size,
-            force=force,
-            log=console.print,
-        )
-    except ForgeError as exc:
-        raise _fail(str(exc)) from exc
-
-    for name, reason in undiscovered + summary.skipped:
-        console.print(f"[yellow]skipped {escape(name)}:[/yellow] {escape(reason)}")
-    if summary.existing:
-        console.print(f"[dim]{len(summary.existing)} component(s) already quantized[/dim]")
-    if not summary.results:
-        return
-    console.print(
-        f"[green]done:[/green] saved {human_bytes(summary.saved_bytes)} across "
-        f"{len(summary.results)} component(s); marker at {weights_dir / 'quantized.json'}"
-    )
-    console.print(
-        "[dim]note:[/dim] the port's api_server does not load q4 weights yet — apply "
-        "the serving hook from docs/mlx-quantization.md, then start the server."
-    )
-
-
-@app.command()
-def version() -> None:
-    """Print the trellis-forge version."""
-    console.print(__version__)
 
 
 if __name__ == "__main__":

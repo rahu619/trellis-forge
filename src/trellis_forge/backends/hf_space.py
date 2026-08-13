@@ -33,7 +33,7 @@ class HfSpaceBackend(Backend):
         try:
             import gradio_client  # noqa: F401
         except ImportError:
-            return False, 'install with: pip install "trellis-forge[hf]"'
+            return False, "gradio-client is missing — reinstall trellis-forge"
         return True, "remote demo Space — needs network, may queue (ZeroGPU quota)"
 
     def generate(

@@ -8,14 +8,14 @@ VALID_RESOLUTIONS = (512, 1024, 1536)
 
 @dataclass(frozen=True)
 class GenerationParams:
-    """Knobs for a generation run. The seed is combined with each image's hash
-    so a batch is reproducible without every asset sharing one literal seed."""
+    """Knobs for a generation run. The base seed is combined with each image's
+    hash in the pipeline so a batch is reproducible without every asset sharing
+    one literal seed."""
 
     resolution: int = 1024
     seed: int = 42
     formats: tuple[str, ...] = ("glb",)
     decimate_to: int | None = None
-    max_side: int | None = None
 
     def validate(self) -> None:
         if self.resolution not in VALID_RESOLUTIONS:

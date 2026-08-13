@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 
 from PIL import Image
@@ -10,23 +9,26 @@ from .base import Backend, BackendResult, ForgeError
 
 MODEL_ID = "microsoft/TRELLIS.2-4B"
 
+# Voxel resolutions -> upstream pipeline_type identifiers
+# (trellis2/pipelines/trellis2_image_to_3d.py). 1024/1536 run cascade sampling.
+PIPELINE_TYPES = {512: "512", 1024: "1024_cascade", 1536: "1536_cascade"}
+
+# The pipeline normalizes the subject into a unit cube centered on the origin.
+_AABB = [[-0.5, -0.5, -0.5], [0.5, 0.5, 0.5]]
+
 
 class OfficialBackend(Backend):
-    """Wraps microsoft/TRELLIS.2's own pipeline on CUDA or MPS.
+    """Wraps microsoft/TRELLIS.2's own pipeline on CUDA.
 
-    cuda: the supported path — Linux, NVIDIA >= 24 GB VRAM, official repo installed.
-    mps:  experimental — needs the MPS fix from microsoft/TRELLIS.2 PR #167
-          (unmerged upstream as of 2026-08; apply it to your TRELLIS.2 checkout).
-          Expect roughly 20-30 min per asset at 1024^3 on M-series chips.
+    The supported local path: Linux, NVIDIA >= 24 GB VRAM, upstream repo
+    installed (or use the Dockerfile). `--resolution` maps to upstream's
+    pipeline_type, and export is wired exactly like upstream's app.py.
     """
 
-    description = "official microsoft/TRELLIS.2 pipeline"
+    name = "official-cuda"
+    description = "official microsoft/TRELLIS.2 pipeline (CUDA)"
 
-    def __init__(self, device: str) -> None:
-        if device not in ("cuda", "mps"):
-            raise ValueError(f"unsupported device {device!r}")
-        self.device = device
-        self.name = f"official-{device}"
+    def __init__(self) -> None:
         self._pipe = None
 
     def is_available(self) -> tuple[bool, str]:
@@ -34,20 +36,16 @@ class OfficialBackend(Backend):
             import torch
         except ImportError:
             return False, "PyTorch not installed in this environment"
-        if self.device == "cuda" and not torch.cuda.is_available():
+        if not torch.cuda.is_available():
             return False, "no CUDA device visible to PyTorch"
-        if self.device == "mps":
-            mps = getattr(torch.backends, "mps", None)
-            if mps is None or not mps.is_available():
-                return False, "MPS not available on this machine/PyTorch build"
         try:
             import trellis2  # noqa: F401
         except ImportError:
             return False, (
                 "TRELLIS.2 repo not installed in this environment — "
-                "see README.md 'CUDA backend' or use the Dockerfile"
+                "see README.md or use the Dockerfile"
             )
-        return True, f"official pipeline on {self.device}"
+        return True, "official pipeline on CUDA"
 
     def _pipeline(self):
         if self._pipe is None:
@@ -55,12 +53,9 @@ class OfficialBackend(Backend):
 
             pipe = Trellis2ImageTo3DPipeline.from_pretrained(MODEL_ID)
             try:
-                pipe = pipe.to(self.device)
-            except Exception as exc:  # upstream API drift or missing MPS patch
-                raise ForgeError(
-                    f"could not move pipeline to {self.device}: {exc}. "
-                    "For MPS, apply microsoft/TRELLIS.2 PR #167 to your checkout."
-                ) from exc
+                pipe = pipe.to("cuda")
+            except Exception as exc:
+                raise ForgeError(f"could not move pipeline to CUDA: {exc}") from exc
             self._pipe = pipe
         return self._pipe
 
@@ -68,34 +63,45 @@ class OfficialBackend(Backend):
         self, image: Image.Image, out_dir: Path, params: GenerationParams
     ) -> BackendResult:
         pipe = self._pipeline()
-        outputs = pipe.run(image, seed=params.seed)
-        meshes = outputs.get("mesh")
+        meshes = pipe.run(
+            image,
+            seed=params.seed,
+            pipeline_type=PIPELINE_TYPES[params.resolution],
+        )
         if not meshes:
             raise ForgeError("pipeline returned no mesh — try a lower resolution")
         mesh = meshes[0]
 
-        out_dir.mkdir(parents=True, exist_ok=True)
-        glb_path = out_dir / "mesh.glb"
+        try:
+            from o_voxel.postprocess import to_glb
+        except ImportError as exc:
+            raise ForgeError(
+                "o_voxel postprocessor not importable — is the TRELLIS.2 checkout built "
+                "(see its setup.sh, or use the Dockerfile)?"
+            ) from exc
 
         export_kwargs = {}
         if params.decimate_to:
             export_kwargs["decimation_target"] = params.decimate_to
         try:
-            # TRELLIS.2 exports through the O-Voxel postprocessor (see upstream README).
-            from o_voxel.postprocess import to_glb
-
-            result = to_glb(mesh, **export_kwargs)
-        except ImportError as exc:
-            raise ForgeError(
-                "o_voxel postprocessor not importable — is the TRELLIS.2 checkout built?"
-            ) from exc
+            # Same wiring as extract_glb() in upstream's app.py.
+            glb = to_glb(
+                vertices=mesh.vertices,
+                faces=mesh.faces,
+                attr_volume=mesh.attrs,
+                coords=mesh.coords,
+                attr_layout=pipe.pbr_attr_layout,
+                grid_size=params.resolution,
+                aabb=_AABB,
+                remesh=True,
+                remesh_band=1,
+                remesh_project=0,
+                **export_kwargs,
+            )
         except Exception as exc:
             raise ForgeError(f"mesh export failed: {exc}") from exc
 
-        if isinstance(result, (bytes, bytearray)):
-            glb_path.write_bytes(bytes(result))
-        elif isinstance(result, (str, Path)):
-            shutil.copyfile(result, glb_path)
-        else:  # signature drift upstream: let the user see it rather than guess
-            raise ForgeError(f"unexpected to_glb() return type: {type(result)!r}")
-        return BackendResult(glb_path=glb_path, meta={"model": MODEL_ID, "device": self.device})
+        out_dir.mkdir(parents=True, exist_ok=True)
+        glb_path = out_dir / "mesh.glb"
+        glb.export(str(glb_path), extension_webp=True)
+        return BackendResult(glb_path=glb_path, meta={"model": MODEL_ID})

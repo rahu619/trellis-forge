@@ -6,44 +6,31 @@
   installed in the active environment (or use the Dockerfile).
 - Model weights (`microsoft/TRELLIS.2-4B`, ~15 GB) download on first run via
   Hugging Face Hub.
-- Decimation is backend-side (`to_glb(decimation_target=...)`) so textures
-  survive; trimesh-based OBJ/STL conversion is geometry-only.
-
-## official-mps
-
-- Same pipeline, Apple Silicon device. Requires the MPS fix from
-  microsoft/TRELLIS.2 PR #167 applied to your checkout (unmerged upstream at
-  time of writing; blocked on CLA only).
-- Verified upstream on M3 Pro: ~24 min generation + ~25 s baking per asset at
-  1024³, producing 2K PBR GLB. 1536³ unverified on MPS — use 512³/1024³.
-- Memory: unified memory is shared with the OS; close heavy apps during runs.
-
-## mlx
-
-- The port now ships a FastAPI server (`api_server.py`) with `POST /generate`
-  (base64 image in, base64 GLB out) and `GET /health`, so the adapter talks to it
-  over HTTP instead of importing it — the server can live in its own environment
-  with MLX and the ~15 GB of weights. Start it once (`python api_server.py`),
-  then run with `--backend mlx`.
-- Discovery: `TRELLIS2_MLX_REPO` points at the clone (used for guidance when no
-  server is reachable); `TRELLIS2_MLX_URL` overrides the server address
-  (default `http://127.0.0.1:8000`). `is_available()` is true only when a server
-  responds to `/health` with `weights_loaded: true`.
-- Resolution maps to the port's `pipeline_type`: 512→`512`, 1024→`1024_cascade`,
-  1536→`1536_cascade`. `--decimate` maps to `decimation_target`.
-- 16 GB Macs: port docs validate only 128 GB; with fp weights,
-  `--resolution 512` and best-effort is the honest setting. `trellis-forge
-  quantize-mlx` produces 4-bit weights (~15 GB → ~4 GB) plus a
-  `quantized.json` marker that the status probes pick up; once the port's
-  serving hook lands, 1024³ should fit. Mechanics and validation plan:
-  [mlx-quantization.md](mlx-quantization.md).
+- `--resolution` maps to upstream's `pipeline_type`
+  (`trellis2/pipelines/trellis2_image_to_3d.py`): 512→`512` (direct),
+  1024→`1024_cascade`, 1536→`1536_cascade`.
+- Export is wired exactly like upstream's demo (`app.py` → `extract_glb`):
+  `o_voxel.postprocess.to_glb(vertices, faces, attr_volume=mesh.attrs,
+  coords=mesh.coords, attr_layout=pipeline.pbr_attr_layout,
+  grid_size=resolution, aabb=[±0.5]³, remesh=True)`. Decimation is
+  backend-side (`decimation_target`) so textures survive; trimesh-based
+  OBJ/STL conversion is geometry-only.
+- The upstream pipeline preprocesses the input image internally (its own
+  BiRefNet-based rembg). `--rembg` still matters: it composites the subject
+  onto white before the backend ever sees it, which is what `hf-space`
+  benefits from most.
+- v0.2 status: the adapter tracks upstream source but has not yet been
+  validated on a live GPU run — treat the first run as a shakedown.
 
 ## hf-space
 
 - Uses `gradio_client` against the official `microsoft/TRELLIS.2` demo Space.
+  Generation is a stateful three-step flow: `/start_session` →
+  `/image_to_3d(image, seed, resolution)` → `/extract_glb`.
 - No local GPU, no weights download — the realistic path for any laptop.
-- Costs: queue waits, Space-chosen resolution, possible API drift (the adapter
-  fails loudly with a `view_api()` hint if the signature changes).
+- Costs: queue waits, ZeroGPU quota (anonymous: a few GPU-minutes/day; an HF
+  token buys more), possible API drift (the adapter fails loudly with a
+  `view_api()` hint if the signature changes).
 - Rate-limit yourself; it's a shared research demo.
 
 ## Adding a backend

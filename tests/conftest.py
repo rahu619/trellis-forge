@@ -7,6 +7,7 @@ import trimesh
 from PIL import Image
 
 from trellis_forge.backends.base import Backend, BackendResult, ForgeError
+from trellis_forge.config import GenerationParams
 
 
 class FakeBackend(Backend):
@@ -19,12 +20,14 @@ class FakeBackend(Backend):
     def __init__(self, fail_on: str | None = None) -> None:
         self.fail_on = fail_on
         self.calls: list[Path] = []
+        self.seeds: list[int] = []
 
     def is_available(self) -> tuple[bool, str]:
         return True, "always"
 
-    def generate(self, image, out_dir: Path, params) -> BackendResult:
+    def generate(self, image, out_dir: Path, params: GenerationParams) -> BackendResult:
         self.calls.append(out_dir)
+        self.seeds.append(params.seed)
         if self.fail_on and self.fail_on in str(out_dir):
             raise ForgeError("boom")
         out_dir.mkdir(parents=True, exist_ok=True)

@@ -7,9 +7,7 @@ from PIL import Image
 from .backends.base import ForgeError
 
 
-def load_image(
-    path: Path, remove_background: bool = False, max_side: int | None = None
-) -> Image.Image:
+def load_image(path: Path, remove_background: bool = False) -> Image.Image:
     """Load an input photo as RGB, optionally isolating the subject.
 
     TRELLIS.2 wants a single object, not a scene; --rembg cuts the subject out
@@ -32,10 +30,4 @@ def load_image(
         img = Image.alpha_composite(background, cutout).convert("RGB")
     else:
         img = img.convert("RGB")
-
-    if max_side and max(img.size) > max_side:
-        scale = max_side / max(img.size)
-        img = img.resize(
-            (round(img.width * scale), round(img.height * scale)), Image.LANCZOS
-        )
     return img
