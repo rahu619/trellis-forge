@@ -35,9 +35,10 @@ that adds the things a research repo never will:
 It is deliberately *not* an interactive authoring tool.
 
 > [!TIP]
-> **ComfyUI wrappers are excellent for interactive asset authoring — use them.**
-> trellis-forge is for everything ComfyUI is bad at: headless batches, CI-style
-> reproducibility, and machine-readable provenance.
+> **TRELLIS.2 now runs natively in ComfyUI — no custom nodes, no compiled CUDA
+> extensions.** Use that for interactive asset authoring. trellis-forge is for
+> everything ComfyUI is bad at: headless batches, CI-style reproducibility, and
+> machine-readable provenance.
 
 ---
 
@@ -47,16 +48,19 @@ Every run flows through the same five stages, no matter which backend does the
 heavy lifting:
 
 1. **Photos in** — `.jpg` / `.png` / `.webp` are collected (optionally recursed).
-2. **Preprocess** — `--rembg` isolates the subject onto a clean white background.
+2. **Load** — each photo is opened as RGB, or as RGBA when it already carries an
+   alpha channel, which the model's own cutout step then honours.
 3. **Backend** — `--backend auto` picks the first available engine (see below).
+   The backend isolates the subject for you: TRELLIS.2 ships BiRefNet/RMBG-2.0,
+   downscales to ≤1024 px and crops to a square around the foreground.
 4. **Export + QC** — the backend's GLB is kept as the primary artifact; OBJ/STL are
    geometry-only convenience exports, and a watertight/face-count QC report is run.
 5. **Assets out** — each asset lands in its own folder and the manifest is updated.
 
 ```mermaid
 flowchart LR
-    P["Photos"] --> Pre["Preprocess<br/>rembg"]
-    Pre --> B{"Backend<br/>auto-select"}
+    P["Photos"] --> Pre["Load<br/>keep alpha"]
+    Pre --> B{"Backend<br/>cutout + auto-select"}
     B --> C["official-cuda"]
     B --> H["hf-space"]
     C & H --> E["Export<br/>GLB · OBJ · STL"]
@@ -79,7 +83,7 @@ flowchart TD
 
 | Backend | Runs on | Speed | Status |
 | --- | --- | --- | --- |
-| `official-cuda` | Linux + NVIDIA ≥ 24 GB (A100/H100/4090-class) | ~1–2 min/asset | supported path (via Dockerfile) |
+| `official-cuda` | Linux + NVIDIA ≥ 24 GB (A100/H100/4090-class) | ~3 s sampling at 512³ on an H100 (upstream's figure); export dominates | supported path (via Dockerfile) |
 | `hf-space` | **any machine with network** | queue-dependent | works today |
 
 > [!NOTE]
@@ -91,22 +95,22 @@ flowchart TD
 ## Install
 
 ```bash
-pip install trellis-forge             # everything, including the hosted backend
-pip install "trellis-forge[rembg]"    # + --rembg background removal
+pip install trellis-forge    # everything, including the hosted backend
 ```
 
 (`pipx install trellis-forge` works too, if you prefer isolated CLI installs.)
 
-The hosted backend needs nothing else. The CUDA backend additionally needs the
-upstream TRELLIS.2 repo installed — the [Dockerfile](#official-cuda--the-fast-path)
-packages that for you.
+There's no background-removal extra to install — TRELLIS.2 does its own cutout.
+The hosted backend needs nothing else; the CUDA backend additionally needs the
+upstream TRELLIS.2 repo installed, which the
+[Dockerfile](#official-cuda--the-fast-path) packages for you.
 
 ### Quick start
 
 1. Install: `pip install trellis-forge`
 2. Point it at a folder of photos:
    ```bash
-   trellis-forge generate ./photos -o ./assets --rembg
+   trellis-forge generate ./photos -o ./assets
    ```
 3. Inspect the output: each image gets a folder with `mesh.glb`, and the run is
    recorded in `assets/manifest.json`.
@@ -133,20 +137,33 @@ Details worth knowing:
 
 - `--resolution` maps to upstream's `pipeline_type`: 512 runs direct sampling,
   1024 and 1536 run the cascade samplers.
+- The pipeline runs in upstream's `low_vram` mode, which streams each sub-model
+  onto the GPU only while it's in use.
 - `--decimate` decimates backend-side during texture baking, so PBR textures
-  survive; the OBJ/STL conversions are geometry-only.
-- The export is wired exactly like upstream's own demo (`app.py`). It has not
-  yet been validated on a live GPU run, so treat your first run as a shakedown
-  and report anything odd.
+  survive; the OBJ/STL conversions are geometry-only. Unset, this path keeps
+  upstream's own 1,000,000-face default — much heavier than the demo Space's
+  300,000 — so pass it when file size matters.
+- Export is wired like upstream's own demo (`app.py`), except that `attr_layout`
+  and `voxel_size` are read off the mesh instead of derived from `--resolution`:
+  a cascade run can decode at a resolution other than the one you asked for.
+  This path has still not been validated on a live GPU, so treat your first run
+  as a shakedown and report anything odd.
 
 ### hf-space — works on any machine
 
 Uses `gradio_client` against the official `microsoft/TRELLIS.2` demo Space. No
-local GPU, no 15 GB weights download — the realistic path for any laptop, at
-the cost of queue waits and ZeroGPU quota (anonymous visitors get only a few
-GPU-minutes per day; an HF token buys more). The Space is a shared research
-demo — rate-limit yourself, and if its API drifts the adapter fails loudly with
-a `view_api()` hint.
+local GPU, no 15 GB weights download — the realistic path for any laptop, at the
+cost of queue waits and ZeroGPU quota: anonymous visitors get only a few
+GPU-minutes per day, so export `HF_TOKEN` if you have a batch to get through.
+
+Generation is a stateful three-step flow — `/preprocess_image`, `/image_to_3d`,
+`/extract_glb` — with the Space holding the sampled latents against your session
+in between, so the client never handles them. It's a shared research demo;
+rate-limit yourself.
+
+`trellis-forge backends` probes the Space for real and checks that all three
+endpoints still exist, so if the API drifts you find out at backend selection
+with a `view_api()` hint rather than partway through a batch.
 
 ---
 
@@ -156,8 +173,8 @@ a `view_api()` hint.
 # What works on this machine?
 trellis-forge backends
 
-# A folder of product photos -> GLBs, subject auto-isolated
-trellis-forge generate ./photos -o ./assets --rembg
+# A folder of product photos -> GLBs (the backend isolates each subject)
+trellis-forge generate ./photos -o ./assets
 
 # Game/web budget + printable STL alongside
 trellis-forge generate ./photos -o ./assets --decimate 150000 --format glb --format stl
@@ -187,13 +204,19 @@ synced, or shipped as-is.
 
 ## Notes on quality
 
-- **Garbage in, garbage out.** Single-image 3D is only as good as the photo:
-  isolated subject, neutral background, sharp focus, object filling the frame.
-- **Mesh QC is in the manifest** (`watertight`, face count, bounds). Generated
-  meshes can have small holes; filter on `qc.watertight` if your downstream
-  pipeline (3D printing, boolean CSG) needs manifolds.
-- **Expect ~1–2 min/asset on a 4090-class GPU** at 1024³ including export.
-  1536³ is a quality/VRAM step up; 512³ is the low-memory fallback.
+- **Garbage in, garbage out.** The cutout is automatic, but the reconstruction is
+  only as good as the photo: one object, neutral background, sharp focus, subject
+  filling the frame. A PNG that already has an alpha channel is used as-is, so
+  pre-cut subjects reach the model untouched.
+- **Mesh QC is in the manifest** (`watertight`, face count, bounds). Upstream
+  fills holes while decoding, but watertightness still isn't guaranteed — filter
+  on `qc.watertight` if your downstream pipeline (3D printing, boolean CSG) needs
+  manifolds.
+- **Timing is unmeasured on consumer hardware.** Upstream publishes ~3 s of
+  sampling at 512³ on an H100 and sub-100 ms for the voxel→mesh conversion, with
+  remeshing and texture baking on top; we haven't timed it ourselves, so budget
+  from your own first run. 1536³ is a quality/VRAM step up, 512³ the low-memory
+  fallback.
 
 ---
 
@@ -217,10 +240,13 @@ photos of people, patients, or copyrighted work you don't hold.
 
 ## Roadmap
 
-- [ ] GPU validation run for the rewritten `official-cuda` export path
+- [ ] GPU validation run for `official-cuda` — the wiring now matches upstream
+      source line for line, but it has never executed on real hardware
 - [ ] Preview renders (turntable/contact sheet) per asset
-- [ ] Watch upstream Apple Silicon / MPS support; when it stabilizes it becomes
-      a third backend
+
+There is no Apple Silicon item. TRELLIS.2 is Linux + CUDA only, and upstream has
+had no feature commit since January 2026 — the only changes since are CI fixes.
+If you're on a Mac, `hf-space` is the path.
 
 ---
 

@@ -36,11 +36,11 @@
   <text x="105" y="150" text-anchor="middle" class="title">Photos in</text>
   <text x="105" y="168" text-anchor="middle" class="sub">.jpg .png .webp</text>
 
-  <text x="297" y="150" text-anchor="middle" class="title">Preprocess</text>
-  <text x="297" y="168" text-anchor="middle" class="sub">rembg</text>
+  <text x="297" y="150" text-anchor="middle" class="title">Load</text>
+  <text x="297" y="168" text-anchor="middle" class="sub">keep alpha</text>
 
   <text x="489" y="150" text-anchor="middle" class="titleW">Backend</text>
-  <text x="489" y="168" text-anchor="middle" class="subW">auto-select</text>
+  <text x="489" y="168" text-anchor="middle" class="subW">cutout &#183; auto-select</text>
 
   <text x="681" y="150" text-anchor="middle" class="title">Export + QC</text>
   <text x="681" y="168" text-anchor="middle" class="sub">GLB &#183; OBJ &#183; STL</text>
@@ -73,5 +73,5 @@
   <!-- No-GPU callout -->
   <rect x="52" y="370" width="874" height="66" class="tag"/>
   <text x="72" y="396" class="tagT">No GPU? No problem.</text>
-  <text x="72" y="416" class="cap"><tspan font-weight="600">hf-space</tspan> runs on any machine with network access &#8212; expect queue waits and a small anonymous ZeroGPU quota (an HF token buys more).</text>
+  <text x="72" y="416" class="cap"><tspan font-weight="600">hf-space</tspan> runs on any machine with network access &#8212; expect queue waits and a small anonymous ZeroGPU quota (export <tspan font-weight="600">HF_TOKEN</tspan> for a larger allowance).</text>
 </svg>

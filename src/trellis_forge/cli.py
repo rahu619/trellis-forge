@@ -67,7 +67,6 @@ def generate(
     fmt: list[str] = typer.Option(
         ["glb"], "--format", "-f", help=f"Output formats: {VALID_FORMATS}. Repeatable."
     ),
-    rembg: bool = typer.Option(False, "--rembg", help="Cut the subject out of the photo first."),
     recursive: bool = typer.Option(False, "--recursive", "-r", help="Recurse into folders."),
     force: bool = typer.Option(False, "--force", help="Regenerate even if in the manifest."),
     limit: int | None = typer.Option(None, help="Only process the first N images."),
@@ -108,7 +107,7 @@ def generate(
     ) as progress:
         task = progress.add_task(engine.name, total=total)
 
-        def on_image(image_path: Path, outcome: str, detail: str) -> None:
+        def on_image(image_path: Path, outcome: str) -> None:
             style = _OUTCOME_STYLE[outcome]
             progress.update(
                 task,
@@ -121,7 +120,6 @@ def generate(
             out,
             engine,
             params,
-            remove_background=rembg,
             force=force,
             limit=limit,
             on_image=on_image,
@@ -149,8 +147,8 @@ def backends() -> None:
     for name, engine in all_backends().items():
         ok, reason = engine.is_available()
         status = "[green]available[/green]" if ok else "[red]unavailable[/red]"
-        # escape(): reasons can contain literals like "trellis-forge[rembg]"
-        # that rich would otherwise parse as markup tags.
+        # escape(): reasons carry text we don't control (a backend name, an
+        # upstream exception) that rich would otherwise parse as markup tags.
         table.add_row(name, status, escape(f"{engine.description} — {reason}"))
     console.print(table)
 

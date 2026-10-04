@@ -12,7 +12,10 @@ using Microsoft's TRELLIS.2 image-to-3D model. It wraps two inference backends
 deterministic seeding, a provenance manifest with resume, and mesh QC. It is a
 headless, CI-style pipeline — deliberately not an interactive tool. v0.2 was a
 deliberate scope cut (experimental MLX/MPS adapters and MLX quantization were
-removed): prefer depth on the two supported paths over new speculative ones.
+removed): prefer depth on the two supported paths over new speculative ones. v0.3
+dropped `--rembg` and its extra — TRELLIS.2 runs its own BiRefNet/RMBG-2.0 cutout
+and the Space exposes the same step as `/preprocess_image`, so a second local
+preprocessor was redundant and weaker.
 
 ## Commands
 
@@ -36,7 +39,7 @@ src/trellis_forge/
 ├── cli.py        typer app: generate / backends, --version eager flag, progress bar
 ├── config.py     GenerationParams (frozen dataclass) + validation
 ├── pipeline.py   collect_images → run_batch (per-image loop, resume, isolation, seed combining)
-├── preprocess.py load / optional rembg
+├── preprocess.py load_image: RGB, or RGBA when the source already has alpha
 ├── backends/     Backend ABC; official.py (CUDA), hf_space.py (hosted demo)
 ├── export.py     GLB primary; OBJ/STL geometry-only convenience exports
 ├── qc.py         trimesh watertight / face-count / bounds report
@@ -44,15 +47,15 @@ src/trellis_forge/
 ```
 
 Flow: `generate` → `resolve_backend()` → `run_batch()` → per image:
-preprocess → `backend.generate()` → `export_formats()` → `qc.inspect()` →
+`load_image()` → `backend.generate()` → `export_formats()` → `qc.inspect()` →
 manifest entry, saved after every success.
 
 ## Invariants — do not break these
 
-1. **Lazy heavy imports.** torch / trellis2 / gradio_client / rembg are
-   imported inside methods only, never at module top level. The CLI and tests
-   must run on machines with none of them. rembg belongs in the `[rembg]`
-   extra, never in core `[project.dependencies]`.
+1. **Lazy heavy imports.** torch / trellis2 / gradio_client are imported inside
+   methods only, never at module top level. The CLI and tests must run on
+   machines with none of them. (`official.py` sets `PYTORCH_CUDA_ALLOC_CONF` at
+   import time on purpose — it must precede CUDA init, and `os` isn't heavy.)
 2. **Manifest is the resume ledger.** Keyed by source-image sha256; asset dirs
    are named `{stem}-{hash[:8]}`; schema v2 stores `"schema": 2` and output
    paths relative to the manifest dir; legacy (schema-1) manifests must still
@@ -73,7 +76,11 @@ manifest entry, saved after every success.
 7. **official-cuda tracks upstream source.** Its `run()`/`to_glb()` wiring
    mirrors `app.py` in microsoft/TRELLIS.2; when upstream drifts, fix against
    that file rather than guessing. `--resolution` maps to upstream
-   `pipeline_type` (`PIPELINE_TYPES` in backends/official.py).
+   `pipeline_type` (`PIPELINE_TYPES` in backends/official.py). Two traps that
+   have already bitten: `Pipeline.cuda()`/`.to()` return `None`, so never rebind
+   the result; and export reads `attr_layout`/`voxel_size` off the mesh, because
+   a cascade run can decode at a resolution other than the one requested.
+   `docs/backends.md` records what was verified against upstream, and when.
 
 ## Testing conventions
 
@@ -84,7 +91,8 @@ manifest entry, saved after every success.
   content hash, so identical images would correctly collapse into one asset.
 - New backend? Test `is_available()` logic and its HTTP/process glue with
   fakes; never require real weights, network, or GPU in CI. Keep adapter tests
-  lean (the `test_hf_space.py` size is the target).
+  lean — a fake client plus a handful of assertions, not a mirror of the
+  adapter.
 
 ## Style
 

@@ -23,12 +23,12 @@ dependencies = [
     "trimesh>=4.0",
     "numpy>=1.26",
     # The hf-space backend is the zero-GPU default path, so its client is core.
-    "gradio-client>=1.0",
+    # 2.x because the demo Space runs gradio 6, and 1.x named the auth kwarg
+    # hf_token where 2.x calls it token.
+    "gradio-client>=2.1",
 ]
 
 [project.optional-dependencies]
-# Background removal for real-world photos (--rembg).
-rembg = ["rembg>=2.0"]
 dev = ["pytest>=8.0", "ruff>=0.5"]
 
 [project.scripts]

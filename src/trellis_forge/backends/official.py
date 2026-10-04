@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from PIL import Image
 
 from ..config import GenerationParams
 from .base import Backend, BackendResult, ForgeError
+
+# Read once when CUDA initialises, so it has to be set at import time — the same
+# thing upstream's app.py and example.py do. Meaningfully cuts peak VRAM.
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 MODEL_ID = "microsoft/TRELLIS.2-4B"
 
@@ -53,7 +58,9 @@ class OfficialBackend(Backend):
 
             pipe = Trellis2ImageTo3DPipeline.from_pretrained(MODEL_ID)
             try:
-                pipe = pipe.to("cuda")
+                # Returns None upstream, so this must stay a bare statement —
+                # rebinding would throw the loaded pipeline away.
+                pipe.cuda()
             except Exception as exc:
                 raise ForgeError(f"could not move pipeline to CUDA: {exc}") from exc
             self._pipe = pipe
@@ -62,46 +69,60 @@ class OfficialBackend(Backend):
     def generate(
         self, image: Image.Image, out_dir: Path, params: GenerationParams
     ) -> BackendResult:
+        import torch
+
         pipe = self._pipeline()
-        meshes = pipe.run(
-            image,
-            seed=params.seed,
-            pipeline_type=PIPELINE_TYPES[params.resolution],
-        )
-        if not meshes:
-            raise ForgeError("pipeline returned no mesh — try a lower resolution")
-        mesh = meshes[0]
-
         try:
-            from o_voxel.postprocess import to_glb
-        except ImportError as exc:
-            raise ForgeError(
-                "o_voxel postprocessor not importable — is the TRELLIS.2 checkout built "
-                "(see its setup.sh, or use the Dockerfile)?"
-            ) from exc
-
-        export_kwargs = {}
-        if params.decimate_to:
-            export_kwargs["decimation_target"] = params.decimate_to
-        try:
-            # Same wiring as extract_glb() in upstream's app.py.
-            glb = to_glb(
-                vertices=mesh.vertices,
-                faces=mesh.faces,
-                attr_volume=mesh.attrs,
-                coords=mesh.coords,
-                attr_layout=pipe.pbr_attr_layout,
-                grid_size=params.resolution,
-                aabb=_AABB,
-                remesh=True,
-                remesh_band=1,
-                remesh_project=0,
-                **export_kwargs,
+            # run() defaults to preprocess_image=True, so the pipeline applies its
+            # own BiRefNet/RMBG-2.0 cutout, downscale and square crop. Upstream's
+            # app.py passes False only because its UI preprocesses on upload.
+            meshes = pipe.run(
+                image,
+                seed=params.seed,
+                pipeline_type=PIPELINE_TYPES[params.resolution],
             )
-        except Exception as exc:
-            raise ForgeError(f"mesh export failed: {exc}") from exc
+            if not meshes:
+                raise ForgeError("pipeline returned no mesh — try a lower resolution")
+            glb = _to_glb(meshes[0], params)
 
-        out_dir.mkdir(parents=True, exist_ok=True)
-        glb_path = out_dir / "mesh.glb"
-        glb.export(str(glb_path), extension_webp=True)
-        return BackendResult(glb_path=glb_path, meta={"model": MODEL_ID})
+            out_dir.mkdir(parents=True, exist_ok=True)
+            glb_path = out_dir / "mesh.glb"
+            glb.export(str(glb_path), extension_webp=True)
+            return BackendResult(glb_path=glb_path, meta={"model": MODEL_ID})
+        finally:
+            # A batch holds the GPU for minutes; release cached blocks between
+            # images so fragmentation can't OOM a long run.
+            torch.cuda.empty_cache()
+
+
+def _to_glb(mesh, params: GenerationParams):
+    """Same wiring as extract_glb() in upstream's app.py, except that layout and
+    voxel size are read off the mesh: a cascade run can decode at a resolution
+    other than the one that was requested."""
+    try:
+        from o_voxel.postprocess import to_glb
+    except ImportError as exc:
+        raise ForgeError(
+            "o_voxel postprocessor not importable — is the TRELLIS.2 checkout built "
+            "(see its setup.sh, or use the Dockerfile)?"
+        ) from exc
+
+    export_kwargs = {}
+    if params.decimate_to:
+        export_kwargs["decimation_target"] = params.decimate_to
+    try:
+        return to_glb(
+            vertices=mesh.vertices,
+            faces=mesh.faces,
+            attr_volume=mesh.attrs,
+            coords=mesh.coords,
+            attr_layout=mesh.layout,
+            voxel_size=mesh.voxel_size,
+            aabb=_AABB,
+            remesh=True,
+            remesh_band=1,
+            remesh_project=0,
+            **export_kwargs,
+        )
+    except Exception as exc:
+        raise ForgeError(f"mesh export failed: {exc}") from exc

@@ -22,7 +22,7 @@ class BackendResult:
 class Backend(ABC):
     """A TRELLIS.2 inference engine.
 
-    Heavy imports (torch, trellis2, mlx, gradio_client) must stay inside methods
+    Heavy imports (torch, trellis2, gradio_client) must stay inside methods
     so the CLI, preprocessing and tests work on machines without any of them.
     """
 

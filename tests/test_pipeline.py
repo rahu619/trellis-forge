@@ -110,7 +110,7 @@ def test_on_image_reports_every_outcome(image_folder: Path, tmp_path: Path) -> N
         tmp_path / "assets",
         backend,
         GenerationParams(),
-        on_image=lambda path, outcome, detail: events.append((path.name, outcome)),
+        on_image=lambda path, outcome: events.append((path.name, outcome)),
     )
     assert events == [
         ("molar-01.png", "generated"),
@@ -125,7 +125,7 @@ def test_on_image_reports_every_outcome(image_folder: Path, tmp_path: Path) -> N
         tmp_path / "assets",
         backend,
         GenerationParams(),
-        on_image=lambda path, outcome, detail: events.append((path.name, outcome)),
+        on_image=lambda path, outcome: events.append((path.name, outcome)),
     )
     assert events[-3:] == [
         ("molar-01.png", "skipped"),

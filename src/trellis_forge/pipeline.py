@@ -16,9 +16,8 @@ from .qc import inspect
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 
-# Called after each image: (image_path, outcome, detail) where outcome is one
-# of "generated" | "skipped" | "failed".
-OnImage = Callable[[Path, str, str], None]
+# Called after each image with outcome "generated" | "skipped" | "failed".
+OnImage = Callable[[Path, str], None]
 
 
 @dataclass
@@ -48,8 +47,7 @@ def collect_images(paths: list[Path], recursive: bool = False) -> list[Path]:
             found.extend(p for p in iterator if p.is_file() and _is_image(p))
         elif path.is_file() and _is_image(path):
             found.append(path)
-    unique = dict.fromkeys(found)  # dedupe, keep order
-    return sorted(unique)
+    return sorted(set(found))
 
 
 def _is_image(path: Path) -> bool:
@@ -67,7 +65,6 @@ def run_batch(
     out_dir: Path,
     backend: Backend,
     params: GenerationParams,
-    remove_background: bool = False,
     force: bool = False,
     limit: int | None = None,
     on_image: OnImage | None = None,
@@ -84,14 +81,14 @@ def run_batch(
         if manifest.has(source_hash) and not force:
             summary.skipped += 1
             if on_image:
-                on_image(image_path, "skipped", "")
+                on_image(image_path, "skipped")
             continue
 
         asset_dir = out_dir / f"{image_path.stem}-{source_hash[:8]}"
         run_params = dataclasses.replace(params, seed=image_seed(params.seed, source_hash))
         started = time.monotonic()
         try:
-            image = load_image(image_path, remove_background)
+            image = load_image(image_path)
             result = backend.generate(image, asset_dir, run_params)
             outputs = export_formats(result.glb_path, asset_dir, run_params.formats)
             qc_report = inspect(result.glb_path)
@@ -113,9 +110,9 @@ def run_batch(
             manifest.save()
             summary.generated += 1
             if on_image:
-                on_image(image_path, "generated", asset_dir.name)
+                on_image(image_path, "generated")
         except Exception as exc:  # noqa: BLE001 — isolation is the point
             summary.failed.append((image_path.name, str(exc)))
             if on_image:
-                on_image(image_path, "failed", str(exc))
+                on_image(image_path, "failed")
     return summary

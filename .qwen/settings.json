@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Agent(general-purpose)",
+      "WebFetch(api.github.com)",
+      "WebFetch(raw.githubusercontent.com)",
+      "WebFetch(pypi.org)",
+      "WebFetch(huggingface.co)",
+      "WebFetch(microsoft.github.io)",
+      "WebFetch(microsoft-trellis-2.hf.space)",
+      "WebSearch",
+      "WebFetch(fal.ai)",
+      "WebFetch(www.gradio.app)",
+      "WebFetch(packaging.python.org)"
+    ]
+  },
+  "$version": 4
+}
